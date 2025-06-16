@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -5,7 +6,7 @@ const socketIO = require('socket.io');
 
 const app = express();
 app.use(cors({
-    origin: ['http://localhost:3000', 'http://192.168.1.27:3001'],
+    origin: '*',
     methods: ['GET', 'POST'],
     credentials: true
 }));
@@ -13,40 +14,78 @@ app.use(cors({
 const server = http.createServer(app);
 const io = socketIO(server, {
     cors: {
-        origin: ['http://192.168.1.27:3001'],
-        methods: ['GET', 'POST'],
-    },
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
 });
 
 const users = {};
+const roomMembers = {};
 
 io.on('connection', (socket) => {
     console.log(`✅ Connected: ${socket.id}`);
 
-    // Register the userId to socket.id mapping
     socket.on('register', (userId) => {
         users[userId] = socket.id;
         console.log(`👤 Registered: ${userId}`);
     });
 
-    // Join a private room
+
+    // with multiple connection in room
+    // socket.on('join_room', ({ roomId, userId }) => {
+    //     socket.join(roomId);
+    //     console.log(`📥 ${userId} joined room ${roomId}`);
+    // });
+
+    // Join private room (limit 2 users)
     socket.on('join_room', ({ roomId, userId }) => {
+        if (!roomMembers[roomId]) {
+            roomMembers[roomId] = new Set();
+        }
+        // Check if user is already in the room
+        if (roomMembers[roomId].has(userId)) {
+            socket.emit('already_joined');
+            console.log(`⚠️ User ${userId} already in room ${roomId}`);
+            return;
+        }
+        const members = roomMembers[roomId];
+
+        if (members.size >= 2 && !members.has(userId)) {
+            // Room is full for new user
+            socket.emit('room_full', { message: '❌ Room already has 2 users' });
+            console.log(`❌ ${userId} blocked from joining full room ${roomId}`);
+            return;
+        }
+
+        members.add(userId);
         socket.join(roomId);
         console.log(`📥 ${userId} joined room ${roomId}`);
     });
 
-    // Handle private messages
+
     socket.on('send_message', ({ roomId, senderId, message, type }) => {
         const msg = { roomId, senderId, message, type };
         io.to(roomId).emit('receive_message', msg);
         console.log(`📤 ${senderId} to ${roomId}: ${message}`);
     });
 
+    // socket.on('disconnect', () => {
+    //     const user = Object.keys(users).find(u => users[u] === socket.id);
+    //     if (user) {
+    //         delete users[user];
+    //         console.log(`❌ Disconnected: ${user}`);
+    //     }
+    // });
+
     socket.on('disconnect', () => {
         const user = Object.keys(users).find(u => users[u] === socket.id);
         if (user) {
             delete users[user];
             console.log(`❌ Disconnected: ${user}`);
+            // Remove user from all rooms
+            for (const roomId in roomMembers) {
+                roomMembers[roomId].delete(user);
+            }
         }
     });
 });
@@ -55,7 +94,6 @@ const PORT = process.env.PORT || 2001;
 server.listen(PORT, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
-
 
 
 
