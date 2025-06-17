@@ -69,6 +69,131 @@ io.on('connection', (socket) => {
         console.log(`📤 ${senderId} to ${roomId}: ${message}`);
     });
 
+        // Step 1: Ask for availability
+        socket.on('askAvailability', ({ from, to }) => {
+            const toSocketId = users[to];
+            if (toSocketId) {
+                io.to(toSocketId).emit('receiveAvailabilityRequest', { from });
+                console.log(`📨 ${from} asked ${to} for availability`);
+
+            }
+            
+        });
+
+        // // Step 2: Availability response
+        // socket.on('availabilityResponse', ({ from, to, response }) => {
+        //     const toSocketId = users[to];
+        //     if (toSocketId) {
+        //         io.to(toSocketId).emit('receiveAvailabilityResponse', { from, response });
+        //         if (response === 'yes') {
+        //             console.log(`✅ ${from} is available for ${to}`);
+        //         } else {
+        //             console.log(`❌ ${from} is not available for ${to}`);
+        //         }
+        //     }
+        // });
+    // Server side
+    socket.on('availabilityResponse', ({ from, to, response }) => {
+        const fromSocketId = users[from];
+        const toSocketId = users[to];
+
+        const responsePayload = {
+            from,
+            response,
+        };
+
+        // Emit to both sender and receiver so both see the message
+        if (fromSocketId) io.to(fromSocketId).emit('receiveAvailabilityResponse', responsePayload);
+        if (toSocketId) io.to(toSocketId).emit('receiveAvailabilityResponse', responsePayload);
+    });
+
+
+        // Step 3: Ask for payment details
+        socket.on('askPaymentDetails', ({ from, to }) => {
+            const toSocketId = users[to];
+            if (toSocketId) {
+                io.to(toSocketId).emit('receiveAskForBankDetails', { from });
+                console.log(`💰 ${from} asked ${to} for bank details`);
+            }
+        });
+
+        // Step 4: Send bank details and trigger 5min timer
+        socket.on('sendBankDetails', ({ from, to, bankDetails }) => {
+            const toSocketId = users[to];
+            if (toSocketId) {
+                io.to(toSocketId).emit('receiveBankDetails', { from, bankDetails });
+
+                // Notify user1 to start 5 min timer and show "Send Receipt" after 20s
+                io.to(toSocketId).emit('startPaymentTimer', { from, duration: 300 }); // 300 seconds
+                io.to(toSocketId).emit('showSendReceiptButton', { delay: 20 });
+
+                console.log(`🏦 ${from} sent bank details to ${to}`);
+            }
+        });
+
+        // Step 5: Send Receipt
+        socket.on('sendReceipt', ({ from, to }) => {
+            const toSocketId = users[to];
+            if (toSocketId) {
+                io.to(toSocketId).emit('receivePaymentReceipt', { from, message: 'Payment done' });
+                console.log(`🧾 ${from} sent payment receipt to ${to}`);
+            }
+        });
+    
+        // Step 6: Payment confirmation by receiver
+        // socket.on('confirmPaymentStatus', ({ from, to, status }) => {
+        //     const toSocketId = users[to];
+        //     if (toSocketId) {
+        //         if (status === 'yes') {
+        //             io.to(toSocketId).emit('paymentConfirmed', {
+        //                 from,
+        //                 message: 'Payment done and your order is successfully placed',
+        //             });
+        //             console.log(`✅ ${from} confirmed payment from ${to}`);
+        //         } else {
+        //             io.to(toSocketId).emit('paymentConflict', {
+        //                 from,
+        //                 message: 'Conflict in payment status',
+        //             });
+        //             io.to(users[from]).emit('paymentConflict', {
+        //                 from: to,
+        //                 message: 'Conflict in payment status',
+        //             });
+        //             console.log(`Conflict reported between ${from} and ${to}`);
+        //         }
+        //     }
+        // });
+
+    socket.on('confirmPaymentStatus', ({ from, to, status }) => {
+        const toSocketId = users[to];
+        const fromSocketId = users[from];
+
+        if (status === 'yes') {
+            const payload = {
+                from,
+                message: '✅ Payment done and your order is successfully placed',
+            };
+
+            if (toSocketId) io.to(toSocketId).emit('paymentConfirmed', payload);
+            if (fromSocketId) io.to(fromSocketId).emit('paymentConfirmed', payload);
+
+            console.log(`✅ ${from} confirmed payment with ${to}`);
+        } else {
+            const conflictPayload = {
+                from,
+                message: '❌ Conflict in payment status',
+            };
+
+            if (toSocketId) io.to(toSocketId).emit('paymentConflict', conflictPayload);
+            if (fromSocketId) io.to(fromSocketId).emit('paymentConflict', {
+                from: to,
+                message: '❌ Conflict in payment status',
+            });
+
+            console.log(`⚠️ Conflict reported between ${from} and ${to}`);
+        }
+    });
+        
     // socket.on('disconnect', () => {
     //     const user = Object.keys(users).find(u => users[u] === socket.id);
     //     if (user) {
