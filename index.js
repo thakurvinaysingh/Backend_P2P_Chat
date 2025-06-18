@@ -4,12 +4,20 @@ const http = require('http');
 const cors = require('cors');
 const socketIO = require('socket.io');
 
+// const { saveChatProcess } = require('./chatLogger');
+const chatService = require('./services/chatService');
+const chatRoutes = require('./routes/chatRoutes');
+
 const app = express();
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST'],
     credentials: true
 }));
+app.use(express.json());
+
+// ✅ Register REST API routes (only once)
+app.use('/api/chat', chatRoutes)
 
 const server = http.createServer(app);
 const io = socketIO(server, {
@@ -22,6 +30,20 @@ const io = socketIO(server, {
 const users = {};
 const roomMembers = {};
 
+// connection database
+
+const mongoose = require('mongoose');
+require('dotenv').config(); // If using .env for Mongo URI
+
+mongoose.connect(process.env.MONGODB_URI || 'your-mongodb-atlas-uri', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+}).then(() => {
+    console.log('✅ MongoDB connected');
+}).catch(err => {
+    console.error('❌ MongoDB connection error:', err.message);
+});
+// connection database
 io.on('connection', (socket) => {
     console.log(`✅ Connected: ${socket.id}`);
 
@@ -63,10 +85,28 @@ io.on('connection', (socket) => {
     });
 
 
-    socket.on('send_message', ({ roomId, senderId, message, type }) => {
+    socket.on('send_message', async ({ roomId, senderId, message, type }) => {
         const msg = { roomId, senderId, message, type };
         io.to(roomId).emit('receive_message', msg);
-        console.log(`📤 ${senderId} to ${roomId}: ${message}`);
+        // console.log(`📤 ${senderId} to ${roomId}: ${message}`);
+
+        // await saveChatProcess({
+        //     txnId: roomId,
+        //     buyerUPBAddress: senderId,
+        //     sellerUPBAddress : "vinay",
+        //     status: "type",
+        //     message: message,
+        //     msgImg: "vinay", // Optional
+        //     upbAddress: "vinay check"
+        // });
+        // console.log("chekc the msg :",`📤 ${senderId} to ${roomId}: ${message}`);
+
+        try {
+            await chatService.saveMessage({ roomId, senderId, message, type });
+            console.log(`📤 ${senderId} to ${roomId}: ${message}`);
+        } catch (err) {
+            console.error('❌ Failed to save chat:', err.message);
+        }
     });
 
         // Step 1: Ask for availability
